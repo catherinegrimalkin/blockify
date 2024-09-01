@@ -1,3 +1,8 @@
+#important note: this code expects images which have already been vertically squished by 50%.
+#if one is using imagemagick to convert one's pictures to the PGM P6 image format this code also expects...
+#that's something one can add to that invocation.
+#otherwise: sorry!
+
 import sys
 import numpy as np
 
@@ -40,7 +45,7 @@ blocks = {"1111111111111111111111111111111100000000000000000000000000000000": "â
           "0000000000000000000000000001100000011000000000000000000000000000":"Â·",}
 
 
-
+#define an arbitrary ordering for the blocks, so they can be stored by-index later
 keys = tuple(blocks.keys())
 
 def f_inv(x):
@@ -69,9 +74,12 @@ fromlab_2 = np.array([[+4.0767416621, -3.3077115913, +0.2309699292],
 		      [-1.2684380046, +2.6097574011, -0.3413193965],
 		      [-0.0041960863, -0.7034186147, +1.7076147010]])
 
+#read PNM P6 file from stdin (breaks if file has a comment, but, eh)
 assert sys.stdin.buffer.readline() == b"P6\n"
 w, h = map(int, sys.stdin.buffer.readline().split())
 depth = int(sys.stdin.buffer.readline())
+
+#convert from sRGB to okLAB
 a = np.array(list(map(int, sys.stdin.buffer.read())))
 b = a / depth
 b = np.vectorize(f_inv)(b)
@@ -79,15 +87,24 @@ b = b.reshape(h, w, 3)
 b = b@tolab_1.transpose()
 b **= 1 / 3
 b = b@tolab_2.transpose()
+
+#height and width of each block
 hs = 8
 ws = 8
 
+#the crux of the algorithm is using numpy vectorization to calculate how well a given block fits for *every* chunk of the image at the same time
+#so these are, respectively:
+#the current best score for each chunk
+#the best foreground color for each chunk
+#the best background color for each chunk
+#and the index of the best block for each chunk
 bests = np.ones((h // hs, w // ws), dtype=float) * float("inf")
 c1 = np.zeros((h // hs, w // ws, 3), dtype=float)
 c2 = np.zeros((h // hs, w // ws, 3), dtype=float)
 c3 = np.zeros((h // hs, w // ws), dtype=int)
 
 for bl in range(len(keys)):
+    #find the foreground color and background color for this block, using the arithmetic mean, for every chunk at once 
     icnt = 0
     jcnt = 0
     i = np.zeros((h // hs, w // ws, 3), dtype=float)
@@ -102,17 +119,24 @@ for bl in range(len(keys)):
                 j += b[y_::hs, x_::ws]
     i /= icnt
     j /= jcnt
+    
+    #find the total euclidean-distance deviation from the image, for this block, for every chunk at once
     scores = np.zeros((h // hs, w // ws), dtype=float)
     for y_ in range(hs):
         for x_ in range(ws):
             errs = (b[y_::hs, x_::ws] - (i if int(keys[bl][y_ * ws + x_]) else j)) ** 2
             scores += (errs[:, :, 0] + errs[:, :, 1] + errs[:, :, 2]) ** 0.5
+
+    #numpy broadcasting hack: find the chunks where this block is better than all the ones we've tried before...
     wins = scores < bests
+    #...and update our best-block tracker on *just* those
     bests[wins] = scores[wins]
     c1[wins] = i[wins]
     c2[wins] = j[wins]
     c3[wins] = bl
 
+#once the loop is finished, it should have checked, and found, the block with the minimum deviation for every chunk of the image.
+#now all that's left is to act on this info: first, converting all the values from okLAB back to sRGB
 c1 = c1@fromlab_1.transpose()
 c1 **= 3
 c1 = c1@fromlab_2.transpose()
@@ -124,6 +148,8 @@ c2 **= 3
 c2 = c2@fromlab_2.transpose()
 c2 = np.vectorize(f)(c2)
 c2 *= 255
+
+#and then printing each block as calculated.
 for y in range(h // hs):
     for x in range(w // ws):
         g1 = c1[y, x]
