@@ -78,9 +78,9 @@ fromlab_2 = np.array([[+4.0767416621, -3.3077115913, +0.2309699292],
 assert sys.stdin.buffer.readline() == b"P6\n"
 w, h = map(int, sys.stdin.buffer.readline().split())
 depth = int(sys.stdin.buffer.readline())
+a = np.array(list(map(int, sys.stdin.buffer.read())))
 
 #convert from sRGB to okLAB
-a = np.array(list(map(int, sys.stdin.buffer.read())))
 b = a / depth
 b = np.vectorize(f_inv)(b)
 b = b.reshape(h, w, 3)
